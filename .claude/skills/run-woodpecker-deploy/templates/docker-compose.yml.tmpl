@@ -1,0 +1,38 @@
+# __PROJECT__ -- deployed by Woodpecker onto the host docker daemon.
+#
+# The container joins the external overlay network `npm_proxy`, which is where
+# nginx-proxy-manager lives. NPM reaches it by container name, so no host port
+# needs publishing. Point a Proxy Host at:  __PROJECT__ : __PORT__
+
+services:
+  app:
+    build: .
+    container_name: __PROJECT__
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=__PORT__
+      # Secrets arrive as env vars on the Woodpecker deploy step; this reads them.
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+    expose:
+      - "__PORT__"
+    networks:
+      - npm_proxy
+    labels:
+      # Documentation only -- NPM does not read labels. Keeps the intended
+      # routing next to the service so the NPM UI can be rebuilt from source.
+      npm.enable: "true"
+      npm.host: "__DOMAIN__"
+      npm.port: "__PORT__"
+    healthcheck:
+      # 127.0.0.1, never `localhost`: in alpine images localhost resolves to ::1
+      # first and a server bound to 0.0.0.0 (IPv4) refuses the connection.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:__PORT____HEALTH_PATH__"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  npm_proxy:
+    external: true

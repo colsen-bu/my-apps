@@ -1,0 +1,66 @@
+# Woodpecker CI/CD for __PROJECT__
+#
+# Host: Oracle Cloud instance, Docker Swarm manager. The Woodpecker agent has
+# /var/run/docker.sock mounted, so the `deploy` step drives the HOST docker
+# daemon directly -- `docker compose up` here creates real containers on the box.
+#
+# BEFORE THE FIRST PUSH: in the Woodpecker UI open this repo ->
+#   Settings -> Project -> Trusted -> enable "Volumes"
+# Without it every pipeline dies at validation with:
+#   "Insufficient trust level to use `volumes`"
+
+variables:
+  - &project __PROJECT__
+
+steps:
+  build:
+    image: __BUILD_IMAGE__
+    commands:
+__BUILD_COMMANDS__
+    when:
+      - event: [push, pull_request, manual]
+
+  deploy:
+    image: docker:27-cli
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Pin the compose project name. Without it compose derives it from the
+      # workspace directory, which differs between the agent and local `exec`
+      # runs -- the second project then collides with `container_name`.
+      COMPOSE_PROJECT_NAME: *project
+      # Secrets: add them in the Woodpecker UI (repo -> Settings -> Secrets),
+      # then reference them here. They land in the step env, which is exactly
+      # where docker-compose.yml's ${VAR} interpolation reads from.
+      # OPENAI_API_KEY:
+      #   from_secret: openai_api_key
+    commands:
+      - docker compose up -d --build --remove-orphans
+      - docker image prune -f --filter "dangling=true"
+    when:
+      - event: [push, manual]
+        branch: ${CI_REPO_DEFAULT_BRANCH}
+
+  verify:
+    image: docker:27-cli
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      CONTAINER: *project
+    commands:
+      - |
+        for i in $(seq 1 40); do
+          s=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER" 2>/dev/null || echo missing)
+          echo "attempt $i: $s"
+          case "$s" in
+            healthy|running) echo "__PROJECT__ is up"; exit 0 ;;
+            unhealthy|exited) break ;;
+          esac
+          sleep 3
+        done
+        echo "!! __PROJECT__ never became healthy"
+        docker logs --tail 60 "$CONTAINER" 2>&1 || true
+        exit 1
+    when:
+      - event: [push, manual]
+        branch: ${CI_REPO_DEFAULT_BRANCH}

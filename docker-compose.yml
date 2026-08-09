@@ -1,0 +1,33 @@
+# riftbound-collection -- deployed by Woodpecker onto the host docker daemon.
+#
+# The container joins the external overlay network `npm_proxy`, which is where
+# nginx-proxy-manager lives. NPM reaches it by container name, so no host port
+# needs publishing. Point a Proxy Host at:  riftbound-collection : 80
+
+services:
+  app:
+    build: .
+    container_name: riftbound-collection
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - npm_proxy
+    labels:
+      # Documentation only -- NPM does not read labels. Keeps the intended
+      # routing next to the service so the NPM UI can be rebuilt from source.
+      npm.enable: "true"
+      npm.host: "riftbound.mcvcllmhgb.com"
+      npm.port: "80"
+    healthcheck:
+      # 127.0.0.1, never `localhost`: in alpine images localhost resolves to ::1
+      # first and a server bound to 0.0.0.0 (IPv4) refuses the connection.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  npm_proxy:
+    external: true

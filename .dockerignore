@@ -1,0 +1,11 @@
+node_modules
+dist
+dev-dist
+.git
+.claude
+.vscode
+__pycache__
+*.pyc
+*.tsbuildinfo
+.DS_Store
+legacy-single-file.html
